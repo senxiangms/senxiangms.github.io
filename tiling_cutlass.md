@@ -363,6 +363,30 @@ See `examples/06_splitK_gemm/splitk_gemm.cu` for a worked example.
 
 The tile sizes are baked into the kernel as template parameters. This lets the compiler fully unroll inner loops, allocate exact shared memory sizes, and generate specialized Tensor Core instructions. The problem sizes are runtime values that only affect how many tiles to launch and how many K iterations to run.
 
+### How to Choose Tile Sizes When Problem Size Is Unknown
+
+Since tile sizes are compile-time constants but problem sizes are runtime values, the tile size must be chosen before knowing the actual problem. There are three common approaches:
+
+**One size fits most.** Pick a tile size that works well across your expected problem sizes. For example, `128×256×64` is a common default for large GEMMs on Ampere. If your workloads are consistently large, one kernel is enough.
+
+**Compile several kernels, dispatch at runtime.** Compile multiple kernels with different tile sizes and select the best one based on the runtime problem size:
+
+```cpp
+if (M <= 64 && N <= 64) {
+    launch<GemmShape<64, 64, 32>>(M, N, K);
+} else if (M <= 128) {
+    launch<GemmShape<128, 128, 64>>(M, N, K);
+} else {
+    launch<GemmShape<128, 256, 64>>(M, N, K);
+}
+```
+
+This is what libraries like cuBLAS do — they have a large table of pre-compiled kernels and a heuristic that picks the best one for each problem size.
+
+**Autotuning.** Profile all compiled tile variants on the actual problem and pick the fastest. CUTLASS provides a profiler (`tools/profiler/`) for this. PyTorch's `torch.compile` and Triton also use this approach.
+
+There is no single optimal tile size for all problems. Larger tiles have better data reuse but worse tail effects on small problems. The right choice depends on the problem size, GPU architecture, and data types.
+
 ## CUTLASS 2.x vs 3.x
 
 In CUTLASS 2.x, tiles are specified with three explicit `GemmShape` parameters:
