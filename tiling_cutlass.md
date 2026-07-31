@@ -1,3 +1,8 @@
+---
+layout: page
+title: Tiling in CUTLASS
+---
+
 # Tiling in CUTLASS
 
 ## What Problem Does Tiling Solve?
