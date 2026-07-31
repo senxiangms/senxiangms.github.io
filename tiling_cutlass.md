@@ -290,6 +290,66 @@ for (; gemm_k_iterations > 0; --gemm_k_iterations) {       // iterate over K til
 ```
 
 This ensures the GPU is never idle waiting for memory.
+## Split-K: Parallelizing Along K
+
+### The Problem
+
+In normal GEMM, the threadblock grid is `ceil(M/CtaTileM) × ceil(N/CtaTileN)`. When M and N are small but K is large, this grid has very few threadblocks and most of the GPU sits idle.
+
+For example, with M=128, N=128, CtaTileM=128, CtaTileN=128:
+```
+grid = ceil(128/128) × ceil(128/128) = 1 × 1 = 1 threadblock
+```
+Only 1 SM is used, even if K=4096 and the GPU has 80+ SMs.
+
+### How Split-K Works
+
+Split-K partitions the K dimension across multiple threadblocks, so they can run on different SMs in parallel:
+
+```
+Normal:    grid = (M_tiles, N_tiles, 1)           → 1 TB does all of K
+Split-K:   grid = (M_tiles, N_tiles, split_k)     → split_k TBs share K
+
+Example with split_k_slices = 4, K = 4096:
+
+             K=0        K=1024      K=2048      K=3072     K=4096
+              |           |           |           |           |
+  TB(k=0):   |===========|
+  TB(k=1):               |===========|
+  TB(k=2):                           |===========|
+  TB(k=3):                                       |===========|
+              └── each TB computes a partial result for the same M×N output tile
+```
+
+Each threadblock computes fewer K iterations:
+```cpp
+// from include/cutlass/gemm/kernel/gemm_splitk_parallel.h
+int full_gemm_k_iterations = problem_size.k() / Mma::Shape::kK;
+int gemm_k_iterations = full_gemm_k_iterations / grid_tiled_shape.k();
+// e.g., 4096/64 = 64 total → 64/4 = 16 iterations per threadblock
+```
+
+### The Reduction Step
+
+Since multiple threadblocks produce partial results for the same output tile, a **second kernel** is needed to combine them:
+
+1. **GEMM kernel** — each threadblock writes its partial result to a workspace buffer, offset by its partition index
+2. **Reduction kernel** — reads all partial results for each (m, n) position and sums them into the final output
+
+```
+  Workspace (M × N × split_k_slices)
+
+  TB(k=0) partial ──→  [  partial_0  ]
+  TB(k=1) partial ──→  [  partial_1  ]  ──→  Reduction kernel  ──→  Final output (M × N)
+  TB(k=2) partial ──→  [  partial_2  ]
+  TB(k=3) partial ──→  [  partial_3  ]
+```
+
+### When to Use Split-K
+
+Split-K is beneficial when the M×N grid is too small to fill the GPU. If M and N are already large enough to saturate all SMs, split-K adds overhead (the extra reduction kernel and workspace memory) with no benefit.
+
+See `examples/06_splitK_gemm/splitk_gemm.cu` for a worked example.
 
 ## Compile Time vs. Runtime
 
