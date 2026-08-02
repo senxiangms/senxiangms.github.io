@@ -11,6 +11,48 @@ A GEMM (General Matrix Multiply) computes `D = alpha * A * B + beta * C` where A
 
 Tiling solves this by breaking the big matrix multiply into many small matrix multiplies that **do** fit in fast memory. Each small piece is called a **tile**.
 
+## Why Tiling Reduces Global Memory Traffic
+
+### Without tiling
+
+To compute each output element C[i][j], you load row i of A (K elements) and column j of B (K elements). Across all M×N output elements:
+
+```
+Total loads = M × N × 2K
+```
+
+Every element of A and B is loaded once per output element that needs it — no reuse.
+
+### With threadblock tiling
+
+Each threadblock computes a CtaTileM × CtaTileN output tile. Per K-iteration it loads one tile of A (`CtaTileM × CtaTileK`) and one tile of B (`CtaTileK × CtaTileN`). There are `K/CtaTileK` iterations and `(M/CtaTileM) × (N/CtaTileN)` threadblocks:
+
+```
+Total loads = (M/CtaTileM) × (N/CtaTileN) × (K/CtaTileK) × (CtaTileM × CtaTileK + CtaTileK × CtaTileN)
+            = M × N × K × (1/CtaTileN + 1/CtaTileM)
+```
+
+### The speedup
+
+```
+Without tiling:  M × N × 2K
+With tiling:     M × N × K × (1/CtaTileM + 1/CtaTileN)
+
+Reduction factor = 2 / (1/CtaTileM + 1/CtaTileN)
+```
+
+For example, with `CtaTileM = CtaTileN = 128`:
+
+```
+Reduction factor = 2 / (1/128 + 1/128) = 128×
+```
+
+Global memory traffic drops by **128×** compared to the naive approach.
+
+### Why this works
+
+The key is **data reuse**: once an A tile is loaded into shared memory, it is shared across all `CtaTileN` columns of the output tile. Similarly, a B tile is shared across all `CtaTileM` rows. Larger tiles mean each load is reused more times, so total traffic goes down. This is why small tiles lead to memory-bound kernels — insufficient reuse means the same data gets loaded from global memory repeatedly.
+
 ## The Three Levels of Tiling
 
 CUTLASS tiles hierarchically, matching the three levels of the GPU execution model:
