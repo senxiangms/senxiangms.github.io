@@ -189,21 +189,16 @@ for (; gemm_k_iterations > 0; --gemm_k_iterations) {        // outer: K-tiles
             // some boundary protection to avoid load ctatile using iterator clear_mask
         }
 
-        // Compute MMA using CURRENT register buffer
+        // ---- Compute: issue MMA instructions using the CURRENT register buffer ----
+        // This single call fully unrolls M×N instruction tiles at compile time.
+        // e.g. for WarpTile 64×64 with instruction 16×8:
+        //   M tiles = 64/16 = 4,  N tiles = 64/8 = 8  →  4×8 = 32 mma.sync ops.
+        // Only the K dimension is an explicit loop (warp_mma_k); M×N tiling is
+        // baked into the fragment layout and expanded inside the warp_mma operator.
         warp_mma(accum, warp_frag_A[warp_mma_k % 2], warp_frag_B[warp_mma_k % 2], accum);
     }
 }
 ```
-some bad naming in the code: 
- ┌────────────────────────────────┬───────────────────────────────┬─────────┐
-  │          Name in code          │          What it is           │ Example │
-  ├────────────────────────────────┼───────────────────────────────┼─────────┤
-  │ Mma::Shape::kK                 │ Threadblock tile K (CtaTileK) │ 64      │
-  ├────────────────────────────────┼───────────────────────────────┼─────────┤
-  │ WarpGemm::kK                   │ Warp tile K (WarpTileK)       │ 64      │
-  ├────────────────────────────────┼───────────────────────────────┼─────────┤
-  │ Operator::Policy::MmaShape::kK │ MMA instruction K (MmaK)      │ 16      │
-  └────────────────────────────────┴───────────────────────────────┴─────────┘
 
 ### MmaMultistage
 TBD
