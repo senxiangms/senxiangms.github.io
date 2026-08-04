@@ -35,13 +35,6 @@ On Blackwell, the accumulator has been moved to TMEM (Tensor Memory), which free
 
 Blackwell also introduces a **2-CTA mode**, where two CTAs cooperatively execute a single UMMA instruction (`tcgen05.CtaGroup.Two`). In 2-CTA mode, the M dimension of `mma_tiler_mnk` is 2× the per-CTA tile size (`CtaTileM`), since both CTAs contribute to the same MMA operation. 
 
-### software pipeling
-```python
-ab_stages = 4 # matrix A B 's shared memory ring buffer nums
-acc_stage = 1 # there is only one TMEM accumulator buffer, 
-# so only after epilogue write TMEM to global, MMA can use TMEM again for accumulation
-```
-
 ### cute DSL kernel declaration
 ```python
 @cute.kernel # same as CUDA C++ __global__ 
@@ -69,7 +62,9 @@ A tensor's shape, stride, layout is different from B, so it needs two CopyAtom.
 
 mA_mkl is input tensor A, shape is (M, N, L) where L is batch dimension. mB_nkl is input tensor B, shape is (N, K, L). mC_mnl is output tensor C, shape is (M, N, L). 
 
-ComposedLayout is composed of outer and inner layouts. outer maps coordinates (x, y) into logic address, and inner maps logic address into physical address via swizzle XOR to avoid smem bank conflicts. 
+ComposedLayout is composed of outer and inner layouts. outer maps coordinates (x, y) into logic address, and inner maps logic address into physical address via swizzle XOR to avoid smem bank conflicts. outer 's shape is (atom, rest_m, rest_k, stages). atom is a 2d block repeated rest_m times in M dim, rest_k times in K dim. "rest" is a strange naming anyway. Tile in shared memory is composed of atoms, which has swizzle to avoid bank conflict. 
+
+When cute.select(smem_layout, mode=[0, 1, 2]), (atom, rest_m, rest_k) determines a complete tile of one stage in shared memory. 
 
 ### kernel prologue
 
@@ -117,3 +112,15 @@ In tmem.allocate, only lane0 thread in a warp emit instruction to allocate Tmem.
 ```
 tma atom is a moving tool, which includes instruction and descriptor (a "map" telling TMA where is data, what's the data layout). prefetch the "map" to L1/L2 cache will accelerate data move. 
 
+
+### software pipeling
+```python
+ab_stages = 4 # matrix A B 's shared memory ring buffer nums
+acc_stage = 1 # there is only one TMEM accumulator buffer, 
+# so only after epilogue write TMEM to global, MMA can use TMEM again for accumulation
+....
+num_tma_copy_bytes = cute.size_in_bytes(
+        io_dtype, cute.select(a_smem_layout, mode=[0, 1, 2])
+    ) + cute.size_in_bytes(io_dtype, cute.select(b_smem_layout, mode=[0, 1, 2]))
+# compile time calculation of one TMA move bytes, include A tile and B tile 
+```
