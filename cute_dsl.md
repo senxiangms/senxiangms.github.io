@@ -91,3 +91,4 @@ SharedStorage is a class holding barriers for pipeline sync. The name of storage
 ```python
 sA = smem.allocate_tensor(layout=..., swizzle=...)
 ```
+Allocated Memory size can be calculated using layout.outer. Swizzle will not affect the total size needed.
