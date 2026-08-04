@@ -123,4 +123,14 @@ num_tma_copy_bytes = cute.size_in_bytes(
         io_dtype, cute.select(a_smem_layout, mode=[0, 1, 2])
     ) + cute.size_in_bytes(io_dtype, cute.select(b_smem_layout, mode=[0, 1, 2]))
 # compile time calculation of one TMA move bytes, include A tile and B tile 
+ab_producer, ab_consumer = pipeline.PipelineTmaUmma.create（...)
+acc_producer, acc_consumer = pipeline.PipelineUmmaAsync.create(...)
 ```
+
+|          | AB pipeline (PipelineTmaUmma) | ACC pipeline (PipelineUmmaAsync) |
+|----------|-------------------------------|----------------------------------|
+| Producer | TMA warp                      | MMA warp                         |
+| Consumer | MMA warp                      | Epilogue warps                   |
+| Buffer   | Shared memory (A/B tiles)     | TMEM (accumulator)               |
+| Stages   | ab_stages = 4                 | acc_stages = 1                   |
+| tx_count | Yes (TMA hardware counting)   | No (software commit)             |
