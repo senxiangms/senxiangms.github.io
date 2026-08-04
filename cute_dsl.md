@@ -90,5 +90,22 @@ SharedStorage is a class holding barriers for pipeline sync. The name of storage
 
 ```python
 sA = smem.allocate_tensor(layout=..., swizzle=...)
+tmem_alloc_barrier = pipeline.NamedBarrier(
+        barrier_id=1,
+        num_threads=threads_per_cta,
+) # use hw barrier 1, and all threads in a cta for sync
+tmem = utils.TmemAllocator(
+    storage.tmem_holding_buf.ptr,
+    barrier_for_retrieve=tmem_alloc_barrier,
+)
+num_tmem_cols = 512
+tmem.allocate(num_tmem_cols)
 ```
 Allocated Memory size can be calculated using layout.outer. Swizzle will not affect the total size needed.
+
+tmem is a Tmem allocator. After allocating a Tmem, the Tmem address will be written into tem_holding_buffer, so other warps can read it. barrier is used to notify other warp that the Tmem is ready and can be read. 
+
+Tmem is a special hardware. It has 128 rows and 512 columns. You can specify how many columns needed to contain accumulator (output tile in mma instruction). One Tmem cell is 4 bytes. 
+
+In tmem.allocate, only lane0 thread in a warp emit instruction to allocate Tmem. Other threads in the CTA just wait for broadcast via tmem_holding_buf. 
+
