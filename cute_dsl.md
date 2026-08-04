@@ -4,7 +4,23 @@ title: Cute DSL
 ---
 
 # Cute DSL
-## metaprogramming
+## Metaprogramming
+
+In CUTLASS C++, metaprogramming is done via C++ templates — tile sizes, layouts, and data types are all compile-time template parameters that the compiler resolves and optimizes away. This is powerful but results in complex, hard-to-read template code.
+
+CuTe DSL replaces C++ templates with **Python as the metaprogramming language**. A CuTe DSL kernel is a Python function decorated with `@cute.kernel`. When you "compile" a kernel, the Python interpreter runs first:
+
+1. **Python executes at compile time** — all Python-level expressions (shapes, layouts, allocations, tiling arithmetic) are evaluated by the Python interpreter. These produce concrete values.
+2. **Concrete values become IR constants** — the results are lowered into compiler IR (MLIR/LLVM) as hard-coded constants, just like C++ template parameters become compile-time constants.
+3. **The GPU kernel is generated** — the compiler produces optimized GPU machine code with all tile sizes, memory layouts, and loop bounds baked in.
+
+For example, `smem = cutlass.utils.SmemAllocator()` is a normal Python object — the Python interpreter computes shared memory addresses at compile time, and these addresses appear as literal constants in the generated kernel. Similarly, `mma_tiler_mnk = (128, 256, 64)` is a Python tuple that gets folded into the IR, not a runtime variable.
+
+This means Python code in a CuTe DSL kernel serves two roles:
+- **Lines that touch `cute.*` primitives** generate GPU instructions (loads, MMAs, barriers)
+- **Plain Python expressions** (arithmetic, tuples, control flow) execute at compile time and produce constants
+
+The result is the same performance as hand-written CUTLASS C++ templates, but with Python readability.
 
 ## Blackwell FP16 GEMM in CuTe DSL: Level 0
 
