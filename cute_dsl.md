@@ -109,3 +109,11 @@ Tmem is a special hardware. It has 128 rows and 512 columns. You can specify how
 
 In tmem.allocate, only lane0 thread in a warp emit instruction to allocate Tmem. Other threads in the CTA just wait for broadcast via tmem_holding_buf. 
 
+```python
+    if warp_idx == 0: # will generate bra ptx instruction, no warp divergence
+        cpasync.prefetch_descriptor(tma_atom_a) # prefetch tma descriptor to cache in tma_atom_a
+        cpasync.prefetch_descriptor(tma_atom_b) # prefetch tma descriptor to cache tma_atom_a
+        cpasync.prefetch_descriptor(tma_atom_b) # prefetch tma descriptor to cache tma_atom_b
+```
+tma atom is a moving tool, which includes instruction and descriptor (a "map" telling TMA where is data, what's the data layout). prefetch the "map" to L1/L2 cache will accelerate data move. 
+
