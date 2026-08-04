@@ -124,8 +124,11 @@ num_tma_copy_bytes = cute.size_in_bytes(
     ) + cute.size_in_bytes(io_dtype, cute.select(b_smem_layout, mode=[0, 1, 2]))
 # compile time calculation of one TMA move bytes, include A tile and B tile 
 ab_producer, ab_consumer = pipeline.PipelineTmaUmma.create（...)
+# compile time pipeline producer consumer creation
 acc_producer, acc_consumer = pipeline.PipelineUmmaAsync.create(...)
 ```
+There are two pipelines in this GEMM. For ACC pipeline, since acc_stages=1, it is not enabled.
+By using producer, consumer abstract, simplifies synchronization. 
 
 |          | AB pipeline (PipelineTmaUmma) | ACC pipeline (PipelineUmmaAsync) |
 |----------|-------------------------------|----------------------------------|
