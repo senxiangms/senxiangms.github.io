@@ -85,3 +85,9 @@ mma_coord_mnk can be used by cute.local_tile to which part of A and B will be as
     storage = smem.allocate(SharedStorage)
 ```
 SmemAllocator is normal python object. Python interpreter will execute this code to generate some SMem address which will be used as a hard coded magic number in IR.  
+
+SharedStorage is a class holding barriers for pipeline sync. The name of storage is misleading. It should be barrier_storage, or ctrl_storage. 
+
+```python
+sA = smem.allocate_tensor(layout=..., swizzle=...)
+```
