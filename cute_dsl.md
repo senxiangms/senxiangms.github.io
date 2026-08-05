@@ -66,6 +66,39 @@ ComposedLayout is composed of outer and inner layouts. outer maps coordinates (x
 
 When cute.select(smem_layout, mode=[0, 1, 2]), (atom, rest_m, rest_k) determines a complete tile of one stage in shared memory. 
 
+### Partition tensors for MMA
+
+```python
+    # (bM, bK, RestK): RestK = number of bK chunks needed to cover the full K dimension
+    gA = cute.local_tile(mA_mkl, mma_tiler_mnk, mma_coord_mnk, proj=(1, None, 1))
+    # (bN, bK, RestK)
+    gB = cute.local_tile(mB_nkl, mma_tiler_mnk, mma_coord_mnk, proj=(None, 1, 1))
+    # (bM, bN)
+    gC = cute.local_tile(mC_mnl, mma_tiler_mnk, mma_coord_mnk, proj=(1, 1, None))
+```
+
+`gA` and `gB` are the global memory tiles of A and B needed to compute the `(bM, bN)` output tile. `gC` is the corresponding output tile in global memory.
+
+`proj` controls which dimensions of `mma_tiler_mnk` are applied: `1` means tile that dimension using the coordinate, `None` means keep the full extent (for iteration). For `gA`, M is tiled by `bidx`, K is kept in full (split into `RestK` chunks for the mainloop), and N is projected out.
+
+```python
+    thr_mma = tiled_mma.get_slice(0)
+    # (MMA, MMA_M, MMA_K)
+    tCgA = thr_mma.partition_A(gA)
+    # (MMA, MMA_N, MMA_K)
+    tCgB = thr_mma.partition_B(gB)
+    # (MMA, MMA_M, MMA_N)
+    tCgC = thr_mma.partition_C(gC)
+    # (MMA, MMA_M, MMA_K)
+    tCrA = tiled_mma.make_fragment_A(sA)
+    # (MMA, MMA_N, MMA_K)
+    tCrB = tiled_mma.make_fragment_B(sB)
+    # (MMA, MMA_M, MMA_N)
+    acc_shape = tiled_mma.partition_shape_C(mma_tiler_mnk[:2])
+```
+
+Blackwell's Unified MMA (UMMA) differs from Ampere's MMA, which requires each thread to provide its own operand slice in registers. With UMMA, every thread issues the same MMA instruction referencing shared memory and TMEM — the hardware handles the data distribution internally. Because of this, `tiled_mma.get_slice(0)` uses thread 0's view to partition `gA`, `gB`, and `gC`, and every thread in the MMA warp sees the same partition.
+
 ### kernel prologue
 
 ```python
