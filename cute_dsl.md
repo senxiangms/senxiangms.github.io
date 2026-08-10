@@ -24,6 +24,42 @@ The result is the same performance as hand-written CUTLASS C++ templates, but wi
 
 ## Blackwell FP16 GEMM in CuTe DSL: Level 0
 
+### Kernel Framework
+```python
+def kernel(
+    tiled_mma,          # how the compute instruction is partitioned
+    tma_atom_a, mA_mkl, # A: how it is moved + global gmem view
+    tma_atom_b, mB_nkl, # B: how it is moved + global gmem view
+    mC_mnl,             # C: global gmem view (output)
+    a_smem_layout,      # A's layout in smem
+    b_smem_layout,      # B's layout in smem
+):
+    # 1. Each CTA claims its own tile (K is split into RestK blocks)
+    gA = local_tile(mA_mkl, tile_shape, coord, proj=(1, None, 1))  # (bM, bK, RestK)
+    gB = local_tile(mB_nkl, tile_shape, coord, proj=(None, 1, 1))  # (bN, bK, RestK)
+    gC = local_tile(mC_mnl, tile_shape, coord, proj=(1, 1, None))  # (bM, bN)
+
+    # 2. Prepare the smem destination buffers (multi-stage ring buffer)
+    sA = make_smem_tensor(a_smem_layout)  # [bM, bK, Stage]
+    sB = make_smem_tensor(b_smem_layout)  # [bN, bK, Stage]
+
+    # 3. Pair up gmem <-> smem coords for TMA, with the pipeline stage as the outermost mode
+    tAgA, tAsA = tma_partition(tma_atom_a, ..., sA, gA)
+    tBgB, tBsB = tma_partition(tma_atom_b, ..., sB, gB)
+
+    # 4. Main loop (software pipeline)
+    for k in range(RestK):
+        stage = k % Stage
+        copy(tma_atom_a, tAgA[k], tAsA[stage])   # TMA: gmem -> smem (big block)
+        copy(tma_atom_b, tBgB[k], tBsB[stage])
+        # tensor core iterates over the smem block, one MMA instruction at a time 
+        # (small block x many in M, N, K direction. For blackwell, only K direction)
+        acc = tiled_mma(acc, sA[stage], sB[stage])
+
+    # 5. Write C back
+    copy(acc, gC)
+```
+
 ### Tiling
 ```python
 mma_inst_shape_mnk = (128, 256, 16)  # one warp issues an MMA instruction producing a 128×256 output
@@ -84,13 +120,20 @@ When cute.select(smem_layout, mode=[0, 1, 2]), (atom, rest_m, rest_k) determines
 ```python
     thr_mma = tiled_mma.get_slice(0)
     # (MMA, MMA_M, MMA_K)
-    # MMA's view of A in gmem — only establishes the logical coord/shape
-    # correspondence. The actual gmem->smem load is driven by TMA / a copy atom
-    # (its own tma_partition), NOT by tCgA.
+    # MMA dim = the A-operand block one atom reads (an M×K sub-block);
+    # MMA_M, MMA_K = how many times the atom is tiled along M and K.
+    # MMA's view of A in gmem — establishes the logical coord/shape
+    # correspondence. It is not the copy operand itself: tma_partition later
+    # consumes tCgA and re-cuts it into TMA copy units (tAgA), and the actual
+    # gmem->smem transfer runs on tAgA/tAsA (see the TMA partition step below).
     tCgA = thr_mma.partition_A(gA)
     # (MMA, MMA_N, MMA_K)
+    # MMA dim = the B-operand block one atom reads (an N×K sub-block);
+    # MMA_N, MMA_K = atom tiling counts along N and K.
     tCgB = thr_mma.partition_B(gB)
     # (MMA, MMA_M, MMA_N)
+    # MMA dim = the 2D output block one atom produces;
+    # MMA_M, MMA_N = atom tiling counts along M and N.
     # gmem view of the accumulator for write-back; used by the epilogue's
     # tmem->gmem path (accumulator lives in TMEM, not smem/registers).
     tCgC = thr_mma.partition_C(gC)
@@ -105,6 +148,14 @@ When cute.select(smem_layout, mode=[0, 1, 2]), (atom, rest_m, rest_k) determines
     # partition_shape_C returns a SHAPE (not a tensor): the accumulator tile
     # (bM, bN) partitioned per the MMA instruction layout → (MMA, MMA_M, MMA_N)
     acc_shape = tiled_mma.partition_shape_C(mma_tiler_mnk[:2])
+    # (MMA, MMA_M, MMA_N)
+    # Turn the shape into a real accumulator tensor: same shape as acc_shape,
+    # plus a layout (strides) and a pointer into TMEM. This is the MMA's C/D
+    # operand — cute.gemm(tiled_mma, tCrA, tCrB, tCtAcc) accumulates each
+    # K-tile's partial product into it; the epilogue later reads it back out
+    # of TMEM. The `t` in the name (tmem) is accurate here, unlike the `r` in
+    # tCrA/tCrB.
+    tCtAcc = tiled_mma.make_fragment_C(acc_shape)
 ```
 
 Blackwell's Unified MMA (UMMA) differs from Ampere's MMA, which requires each thread to provide its own operand slice in registers. With UMMA, every thread issues the same MMA instruction referencing shared memory and TMEM — the hardware handles the data distribution internally. Because of this, `tiled_mma.get_slice(0)` uses thread 0's view to partition `gA`, `gB`, and `gC`, and every thread in the MMA warp sees the same partition.
@@ -154,8 +205,40 @@ In tmem.allocate, only lane0 thread in a warp emit instruction to allocate Tmem.
         cpasync.prefetch_descriptor(tma_atom_b) # prefetch tma descriptor to cache tma_atom_b
 ```
 tma atom is a moving tool, which includes instruction and descriptor (a "map" telling TMA where is data, what's the data layout). prefetch the "map" to L1/L2 cache will accelerate data move. 
+### TMA 
+```python
+    # Partition tensors for TMA; this consumes the MMA-partitioned tensors
+    # (tCgA / sA) and re-cuts them into TMA copy units, so the leading mode of
+    # each result is "one TMA transfer" and the rest are iteration modes.
+    tAsA, tAgA = cute.nvgpu.cpasync.tma_partition(
+        tma_atom_a,
+        0,                    # this CTA's rank in the multicast group (0 = no multicast)
+        cute.make_layout(1),  # multicast CTA layout; size 1 = single CTA, no multicast
+        # group_modes(t, start, end): coalesce modes [start, end) into ONE mode,
+        # leaving the rest untouched. It's a logical reshape (no data moves).
+        # sA / tCgA arrive as (MMA, MMA_M, MMA_K, ...); folding [0, 3) merges
+        # (MMA, MMA_M, MMA_K) into a single mode -> a 2-mode (folded, rest)
+        # tensor. TMA wants this because one transfer treats the whole tile as
+        # one unit (the folded mode) and iterates over the rest (stages / k-tiles).
+        cute.group_modes(sA, 0, 3),    # dest: smem A; (MMA, MMA_M, MMA_K) folded, last mode = stage
+        cute.group_modes(tCgA, 0, 3),  # src:  gmem A; (MMA, MMA_M, MMA_K) folded, last mode = RestK
+    )
+    # tAsA -> dest view (smem), tAgA -> src view (gmem); return order follows
+    # arg order. Naming: tAgA = [t]iled-for-the-[A]-copy, [g]mem, tensor [A];
+    # tAsA is the [s]mem counterpart. Actual copy later:
+    #   cute.copy(tma_atom_a, tAgA[None, k], tAsA[None, pipe])
 
-
+    # CTA-wide sync before retrieving the pointer to the start of the allocated
+    # TMEM. Only one warp (e.g. warp 0) does the allocation, so we must sync
+    # before reading the TMEM start address.
+    tmem.wait_for_alloc()
+    # Every warp reads the allocated TMEM base address from its smem slot,
+    # recast to an acc_dtype pointer.
+    tmem_ptr = tmem.retrieve_ptr(acc_dtype)
+    # Swap in the real TMEM pointer: keep tCtAcc's layout, but point it at the
+    # freshly allocated TMEM base instead of the placeholder from make_fragment_C.
+    tCtAcc = cute.make_tensor(tmem_ptr, tCtAcc.layout)
+```
 ### software pipeling
 ```python
 ab_stages = 4 # matrix A B 's shared memory ring buffer nums
