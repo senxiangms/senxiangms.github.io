@@ -83,21 +83,27 @@ When cute.select(smem_layout, mode=[0, 1, 2]), (atom, rest_m, rest_k) determines
 
 ```python
     thr_mma = tiled_mma.get_slice(0)
-    # (MMA, MMA_M, MMA_K)， 
-    # tells each thread, when doing mma (generating C), what view of data you should care about
+    # (MMA, MMA_M, MMA_K)
+    # MMA's view of A in gmem — only establishes the logical coord/shape
+    # correspondence. The actual gmem->smem load is driven by TMA / a copy atom
+    # (its own tma_partition), NOT by tCgA.
     tCgA = thr_mma.partition_A(gA)
     # (MMA, MMA_N, MMA_K)
     tCgB = thr_mma.partition_B(gB)
     # (MMA, MMA_M, MMA_N)
+    # gmem view of the accumulator for write-back; used by the epilogue's
+    # tmem->gmem path (accumulator lives in TMEM, not smem/registers).
     tCgC = thr_mma.partition_C(gC)
     # (MMA, MMA_M, MMA_K)
-    # a shared memory view for sA, t is misleading, r is misleading
-    # every thread has same view. And fragment is still in shared mem, not register.
+    # A descriptor view over sA — NOT a copy, no data moves. The `r` in the
+    # name (register) is misleading on Blackwell: the operand stays in shared
+    # memory (an SMEM matrix descriptor). UMMA is warp-uniform, so every thread
+    # sees the same view.
     tCrA = tiled_mma.make_fragment_A(sA)
     # (MMA, MMA_N, MMA_K)
     tCrB = tiled_mma.make_fragment_B(sB)
-    # Given the MMA tiler's output tile (bM, bN), compute the accumulator shape
-    # partitioned according to the MMA instruction layout → (MMA, MMA_M, MMA_N)
+    # partition_shape_C returns a SHAPE (not a tensor): the accumulator tile
+    # (bM, bN) partitioned per the MMA instruction layout → (MMA, MMA_M, MMA_N)
     acc_shape = tiled_mma.partition_shape_C(mma_tiler_mnk[:2])
 ```
 
