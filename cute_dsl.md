@@ -263,3 +263,5 @@ By using producer, consumer abstract, simplifies synchronization.
 | Buffer   | Shared memory (A/B tiles)     | TMEM (accumulator)               |
 | Stages   | ab_stages = 4                 | acc_stages = 1                   |
 | tx_count | Yes (TMA hardware counting)   | No (software commit)             |
+
+### epilog tiling
