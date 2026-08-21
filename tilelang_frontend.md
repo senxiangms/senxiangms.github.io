@@ -80,6 +80,10 @@ Why the extra layer? Closure variables must be injected somewhere the rewritten 
 
 `DSLMutator` is an `ast.NodeTransformer`. Each `visit_*` method rewrites one kind of node into builder calls. The rewrites route through a small helper, `quote()`, which parses a template string and splices AST nodes into `Name` and `Pass` placeholders — so the transformer reads almost like the target code it produces.
 
+**A "builder call" is just a method call on `__tb`.** The transformer never turns a Python node directly into TIR; it turns it into a call on the builder object threaded through the rewritten function (`def add(__tb): …`), and defers the real decision to that object at run time. The vocabulary is fixed — about twenty hooks declared on `BaseBuilder` (`ctx_if`, `ctx_for`, `bind`, `assign_slice`, `rval`, `arg`, `boolop`, `ret`, …). Every construct is expressed in terms of them.
+
+Why a *call* and not a direct translation? Because "is this compile-time Python or a piece of IR?" cannot be answered from the AST alone — it depends on the *runtime type of the value*. In `for i in range(N)`, whether `N` is a Python `int` (unroll) or a symbolic dimension (emit a TIR loop) is unknowable statically, so the transformer emits `__tb.ctx_for(range(N))` and lets the method inspect the actual value. The rewrite is static and mechanical; the semantics are dynamic and live in the builder. That is exactly why the same rewritten function can either run as plain Python (under `BaseBuilder`) or emit TIR (under `Builder`) — the `visit_*` methods only choose *which* hook each construct calls; the builder decides what that call *means* (see *BaseBuilder vs Builder* below).
+
 Here is the map from Python to builder hooks:
 
 | Python construct | Rewritten to | Builder hook |
