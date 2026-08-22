@@ -1,6 +1,6 @@
 ---
 layout: page
-title: TileLang Frontend
+title: TileLang Frontend. How is Tilelang DSL code tranformed into TIR (Tensor IR)?
 ---
 
 # TileLang Frontend: turning Python into TIR by tracing
@@ -12,7 +12,7 @@ The [TileLang introduction](tilelang_intro) showed *what* a kernel looks like �
 A Python-embedded DSL has to get from Python source to a compiler IR. There are two classic strategies:
 
 - **Parse** — walk the Python AST yourself and translate each node into IR, node by node. This is what TVMScript (which TileLang inherits from TVM) does: a big visitor with `visit_For`, `visit_Assign`, `visit_If`, each emitting TIR directly. The kernel body is *never executed as Python*; it is read as data.
-- **Trace** — rewrite the Python source so that every statement becomes a call to a *builder object*, then **run** the rewritten function. Control flow, arithmetic, and name binding all pass through the builder, which decides — at run time — whether each piece is compile-time Python or a piece of IR to emit.
+- **Trace** — rewrite the Python source so that every statement becomes a call to a *builder object* (__tb.*), then **run** the rewritten function. Control flow, arithmetic, and name binding all pass through the builder, which decides — at run time — whether each piece is compile-time Python or a piece of IR to emit.
 
 TileLang's eager frontend takes the **trace** route. The payoff is that ordinary Python metaprogramming just works: a loop over a Python `range` with a constant bound unrolls, an `if` on a Python `bool` is specialized away, closures and tuple-unpacking behave exactly as Python does — because the same Python interpreter is running the body. Only the parts that touch tensors and TIR expressions turn into IR.
 
@@ -20,7 +20,7 @@ The whole scheme rests on one trick: **source-to-source rewriting so the builder
 
 ## The core idea: rewrite Python into builder calls
 
-Every kernel body is transformed so that each syntactic construct becomes a method call on a builder, conventionally named `__tb`. A rough before/after (simplified — the real output is more verbose):
+Every kernel body is transformed so that each syntactic construct becomes a method call on a builder, conventionally named `__tb` (trace builder?). A rough before/after (simplified — the real output is more verbose):
 
 ```python
 # ---- what you write ----
