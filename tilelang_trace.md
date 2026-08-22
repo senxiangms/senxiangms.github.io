@@ -1,9 +1,9 @@
 ---
 layout: page
-title: TileLang Trace Phase — how a running kernel becomes TIR
+title: TileLang Trace Phase — how running the rewritten DSL emits TIR
 ---
 
-# TileLang Trace Phase: how a running kernel becomes TIR
+# TileLang Trace Phase: how running the rewritten DSL emits TIR
 
 The [frontend article](tilelang_frontend) covered the *rewriting* half of TileLang's eager frontend: `mutate` and `DSLMutator` turn your kernel into a function whose every statement is a call on a builder object `__tb`, wrapped up as an `IRGenerator`. That article stopped at the moment the rewritten function is *run*. This note is about that run — the **trace phase** — and the class that drives it: `Builder` in `tilelang/language/eager/builder.py`.
 
@@ -21,7 +21,7 @@ with builder.prim_func(func.__name__):     # open a PrimFunc frame
 pf = builder.get()                         # extract the finished PrimFunc
 ```
 
-The single line `ir_gen.gen(builder)(**annot)` *executes* the rewritten kernel with a real `Builder` as `__tb`. Nothing here parses anything — Python runs the body, and each `__tb.*` call mutates the builder's growing TIR. This article is entirely about what happens inside those calls.
+The single line `ir_gen.gen(builder)(**annot)` *executes* the rewritten kernel with a real `Builder` as `__tb`. Nothing here parses anything — Python runs the *rewritten* body, and each `__tb.*` call mutates the builder's growing TIR. This article is entirely about what happens inside those calls.
 
 ## The builder is a stateful tree-writer
 
