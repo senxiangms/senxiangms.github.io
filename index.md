@@ -9,3 +9,4 @@ title: Making low-cost HPC
 - [GEMM in CUTLASS](gemm_cutlass)
 - [Tile oriented programming: cute DSL](cute_dsl)
 - [TileLang Introduction](tilelang_intro)
+- [TileLang Frontend: Python to TIR by tracing](tilelang_frontend)
