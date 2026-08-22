@@ -1,9 +1,9 @@
 ---
 layout: page
-title: TileLang Frontend--the first step of Tilelang DSL code tranformed into TIR (Tensor IR)?
+title: DSL Mutator — the first step of TileLang DSL code transformed into TIR (Tensor IR)
 ---
 
-# TileLang Frontend: turning Python into TIR by tracing
+# DSL Mutator: turning Python into TIR by tracing
 
 The [TileLang introduction](tilelang_intro) showed *what* a kernel looks like — tiles moving through explicit memory scopes. This note is about the machinery that turns that Python source into TVM TIR: the **eager frontend**, built around three pieces in `tilelang/language/eager/` — `mutate`, `DSLMutator`, and `IRGenerator`.
 
