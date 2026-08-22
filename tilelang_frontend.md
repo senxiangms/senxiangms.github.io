@@ -1,6 +1,6 @@
 ---
 layout: page
-title: TileLang Frontend. How is Tilelang DSL code tranformed into TIR (Tensor IR)?
+title: TileLang Frontend--the first step of Tilelang DSL code tranformed into TIR (Tensor IR)?
 ---
 
 # TileLang Frontend: turning Python into TIR by tracing
