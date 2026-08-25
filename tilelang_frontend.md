@@ -16,7 +16,7 @@ A Python-embedded DSL has to get from Python source to a compiler IR. There are 
 
 TileLang's eager frontend takes the **trace** route. The payoff is that ordinary Python metaprogramming just works: a loop over a Python `range` with a constant bound unrolls, an `if` on a Python `bool` is specialized away, closures and tuple-unpacking behave exactly as Python does — because the same Python interpreter is running the body. Only the parts that touch tensors and TIR expressions turn into IR.
 
-The whole scheme rests on one trick: **source-to-source rewriting so the builder intercepts everything.**
+The whole scheme rests on one trick: **source-to-source rewriting (mutate) so the builder intercepts everything.**
 
 ## The core idea: rewrite Python into builder calls
 
@@ -27,7 +27,7 @@ Every kernel body is transformed so that each syntactic construct becomes a meth
 for i in range(N):
     B[i] = A[i] + 1.0
 
-# ---- what the frontend runs (conceptually) ----
+# ---- after mutate, what the frontend runs (conceptually) ----
 for __0 in __tb.ctx_for(range(N)):
     i = __tb.bind('i', __0)
     __tb.assign_slice(B, i, __tb.rval('A', A)[i] + 1.0)

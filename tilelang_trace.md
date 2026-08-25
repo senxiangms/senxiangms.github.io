@@ -23,6 +23,20 @@ pf = builder.get()                         # extract the finished PrimFunc
 
 The single line `ir_gen.gen(builder)(**annot)` *executes* the rewritten kernel with a real `Builder` as `__tb`. Nothing here parses anything — Python runs the *rewritten* body, and each `__tb.*` call mutates the builder's growing TIR. This article is entirely about what happens inside those calls.
 
+### __tb.arg 
+visit_FunctionDef inserted __tb.arg(...) for each  parameters in mutate stage. 
+So in this trace stage, all added builder calls will be invoked. The program executed in trace stage is like:
+
+```python
+def main(A, B, C, **__kwargs):
+    A = __tb.arg("A", A)      # ← inserted by visit_FunctionDef, A is registered IR obj after executed/traced
+    B = __tb.arg("B", B)
+    C = __tb.arg("C", C)
+    with __tb.ctx_with(...Kernel...): ...
+```
+
+__tb.arg(...) will call TVM FFI, register this Buffer/Var arg as an formal parameter, and return registered IR object. This formal paramter has two layers, one is just handle, the other is handle to Buffer (with shape, strides, dtype and data pointer) mapping
+
 ## The builder is a stateful tree-writer
 
 `Builder` subclasses `BaseBuilder` (the transparent interpreter) and holds the trace state:
