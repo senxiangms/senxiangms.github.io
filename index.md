@@ -11,3 +11,4 @@ title: Making low-cost HPC
 - [TileLang Introduction](tilelang_intro)
 - [TileLang DSL Mutator: Python to TIR by tracing](tilelang_frontend)
 - [TileLang Trace Phase: how running the rewritten DSL emits TIR](tilelang_trace)
+- [TileLang Lower: from TIR to device code, and how to support new hardware](tilelang_lower)
