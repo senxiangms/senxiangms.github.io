@@ -23,6 +23,8 @@ Its design rests on three ideas:
 
 The key move is **separating dataflow from scheduling and layout**. You write the tile-level algorithm once; the compiler *infers* the register/shared-memory layouts and (optionally) *autotunes* the block sizes and pipeline depth. In CuTe you spell those layouts out by hand.
 
+With an SPMD-style abstraction (single program, multiple tiles), developers can focus more on the computation algorithm and less on hardware details.
+
 ## The programming model
 
 TileLang works at the **tile** level: the unit of reasoning is a block of data (`block_M × block_K`), not a scalar element. You explicitly place tiles in **memory scopes** that mirror the GPU hierarchy:
