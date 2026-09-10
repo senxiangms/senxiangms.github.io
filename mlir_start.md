@@ -13,7 +13,7 @@ MLIR exists precisely to make the middle path viable. You define the abstraction
 
 ## What "a programming language" actually means here
 
-Before writing any TableGen, be precise about the deliverable. A device programming language for an accelerator is five separable artifacts, and conflating them is the most common planning error:
+Before writing any TableGen (your dialect's ops and types), be precise about the deliverable. A device programming language for an accelerator is five separable artifacts, and conflating them is the most common planning error:
 
 1. **A surface syntax** — what the kernel author types. C++ with attributes, a Python-embedded DSL, or a standalone grammar.
 2. **A memory and execution model** — how many address spaces, what is coherent with what, what a "thread" is (if anything), how synchronization is expressed.
