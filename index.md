@@ -13,3 +13,5 @@ title: Making low-cost HPC
 - [TileLang Trace Phase: how running the rewritten DSL emits TIR](tilelang_trace)
 - [TileLang Lower: from TIR to device code, and how to support new hardware](tilelang_lower)
 - [Writing a GCC Plugin: hooking into GIMPLE without forking the compiler](gcc_plugin)
+- [Creating a Device Programming Language with MLIR and Clang](mlir_start)
+- [Creating an MLIR Dialect by Hand with mlir::Dialect](mlir_dialect)
