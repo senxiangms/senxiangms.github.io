@@ -176,7 +176,101 @@ Back to the problem defined at the article beginning. You need to implement an L
 
 For each intrinsic invoked, you need to specifiy a intrinsic handler for lowering. The handler need following information:
 
-target intrinsic function name in LLVM IR
+target intrinsic function name (symbol) in LLVM IR 
 arch code for correct lowering
-core build method when target intrisic function invoked is found in llvm::module (compilaton unit)
+core method (process) when target intrisic function invoked is found in llvm::module (compilaton unit)
  
+ put all registered intrisic handlers in a registry. 
+
+ #### find intrisic calls in llvm::module
+
+```cpp
+ for (Function& function : module)
+    for (BasicBlock& block : function)
+      for (Instruction& instruction : block) {
+        auto* call = dyn_cast<CallBase>(&instruction);
+        if (!call) continue;
+        auto* callee =
+            dyn_cast<Function>(call->getCalledOperand()->stripPointerCasts());
+        if (!callee) continue;
+        const StringRef symbol = callee->getName(); 
+        // match callee symbol with handler's symbol field
+        auto intrinsic_handler = find_handler_in_registry(symbol);
+        CallInst *plain_call = dyn_cast<CallInst>(call);
+        intrinsic_handler->process(plain_call);
+      }
+```
+
+#### The handler's `process` method
+
+Once the registry hands back a handler for the callee symbol, everything that is
+specific to that one intrinsic happens inside a single call, `process(plain_call)`.
+The `CallInst*` is the only argument it needs, because the call site already
+carries the whole operation: the callee says *which* intrinsic this is, the
+operands carry the compile-time constants the descriptor is encoded from, and
+the instruction's position in its basic block says *where* the replacement code
+has to go.
+
+A `process` implementation does three things, in this order:
+
+1. **Read the operands.** Walk `getArgOperand(i)` and `dyn_cast` each one to
+   `ConstantInt` / `ConstantDataArray` / `GlobalVariable`. This is also the
+   natural place to validate: an operand that is not a constant, or a layout
+   that the hardware cannot express, should become a compile-time diagnostic
+   here rather than a silent misencoded descriptor later.
+2. **Encode and dump the descriptor.** Turn those constants into the register
+   image and write it to the descriptor file. Nothing about this step touches
+   the IR.
+3. **Rewrite the call.** Emit the short launch sequence that references the
+   descriptor, forward any uses of the old result to the new value, then delete
+   the original call.
+
+Only the third step needs LLVM's mutation API:
+
+```cpp
+// inside process(CallInst* call)
+
+// IRBuilder<> is the default instantiation (ConstantFolder + IRBuilderDefaultInserter);
+// constructing it from an instruction sets the insert point *before* that instruction,
+// so everything emitted below lands where the intrinsic call used to be.
+IRBuilder<> builder(call);
+
+// Inherit the original call's debug location, otherwise the generated
+// instructions carry no !dbg and the lowering becomes invisible to the debugger
+// and to -pass-remarks output.
+builder.SetCurrentDebugLocation(call->getDebugLoc());
+
+// Reading the call site:
+//   call->arg_size()            -- number of call arguments
+//   call->getArgOperand(iArg)   -- argument iArg, for iArg in [0, arg_size)
+//   call->getCalledFunction()   -- the callee, i.e. the intrinsic declaration
+//   call->getType()             -- the intrinsic's return type
+for (unsigned iArg = 0; iArg < call->arg_size(); ++iArg) {
+  Value* arg = call->getArgOperand(iArg);
+  // dyn_cast<ConstantInt>(arg), etc. -- feed the descriptor encoder
+}
+
+// Emitting the replacement. The builder inserts into the block that `call`
+// belongs to, so the new instructions are part of the module immediately --
+// there is nothing to "commit" afterwards.
+CallInst* lowered = builder.CreateCall(launch_callee, launch_args);
+
+// If the intrinsic returned a value, every user of the old result has to be
+// redirected before the old call can go away.
+if (!call->getType()->isVoidTy())
+  call->replaceAllUsesWith(lowered);
+
+// Drop the intrinsic call. After this the `call` pointer is dangling -- read
+// everything you need from it *before* this line.
+call->eraseFromParent();
+```
+
+One detail that the loop in the previous section glosses over: `eraseFromParent`
+deletes the instruction the enclosing range-based `for` is currently standing
+on, which invalidates its iterator. Either advance the iterator first with
+`make_early_inc_range(block)`, or — usually clearer once a handler may emit more
+than one instruction — do the walk and the rewriting in two phases: collect the
+matching `(CallInst*, handler)` pairs into a worklist, and only then drain the
+worklist calling `process` on each. The second shape also makes the pass's
+return value easy to get right: `PreservedAnalyses::all()` when the worklist
+came up empty, `none()` when anything was rewritten.
