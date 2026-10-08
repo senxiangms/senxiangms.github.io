@@ -1,6 +1,6 @@
 ---
 layout: page
-title: How to use a customized LLVM pass to lower an intrinsic
+title: "2. Extending LLVM to Create Your Own Device Programming Language: LLVM intrinsic lowering"
 ---
 
 # The problem to solve
