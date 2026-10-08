@@ -43,3 +43,5 @@ this createCall will generate
 i32 is return type
 
 ## LLVM instrinsic lowering
+claude --continue
+claude --resume llvm_int
