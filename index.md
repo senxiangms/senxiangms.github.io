@@ -16,3 +16,4 @@ title: Making low-cost HPC
 - [Creating a Device Programming Language with MLIR and Clang](mlir_start)
 - [Creating an MLIR Dialect by Hand with mlir::Dialect](mlir_dialect)
 - [Producer and consumer: why NPU programming needs an abstraction](producer_consumer)
+- [Extending LLVM to Create Your Own Device Programming Language: Introduction](extend_llvm)
