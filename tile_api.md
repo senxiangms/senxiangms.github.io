@@ -69,14 +69,43 @@ elements, 512 bytes for a 16-bit type. `NoneBox` means a plain 2-D layout, the
 usual choice for vector data; a boxed layout is what a matmul operand looks
 like:
 
+A non-boxed tile is the layout everyone already has in mind: with
+`OuterLayout::RowMajor`, a whole row of elements is contiguous, and the next
+row starts `Cols` elements later.
+
 ```text
-NoneBox, RowMajor          Boxed (16x16 boxes, outer ColMajor)
-┌───────────────────┐      ┌─────┬─────┬─────┐
-│ row 0 ──────────► │      │ b0  │ b2  │ b4  │   box 0 is 256 contiguous
-│ row 1 ──────────► │      ├─────┼─────┼─────┤   elements, boxes walk
-│ row 2 ──────────► │      │ b1  │ b3  │ b5  │   down then right
-└───────────────────┘      └─────┴─────┴─────┘
+NoneBox, RowMajor  —  32 x 48 fp16
+┌────────────────────────────────┐
+│ row 0 ───────────────────────► │  48 contiguous elements, then row 1
+│ row 1 ───────────────────────► │
+│ ...                            │
+└────────────────────────────────┘
 ```
+
+A boxed tile has two orders, and keeping them apart is the whole trick. The
+same 32 x 48 tile, with `InnerFractal` set and 16x16 boxes, is a 2 x 3 grid of
+boxes. Each box is 256 elements — 512 bytes for fp16 — stored contiguously;
+the *outer* layout only decides in which order those 512-byte blocks follow
+each other in memory.
+
+```text
+box grid (position)              where each box starts (outer ColMajor)
+┌───────┬───────┬───────┐
+│ (0,0) │ (0,1) │ (0,2) │        offset  0   512  1024  1536  2048  2560
+├───────┼───────┼───────┤        box   (0,0) (1,0) (0,1) (1,1) (0,2) (1,2)
+│ (1,0) │ (1,1) │ (1,2) │                └─col 0─┘ └─col 1─┘ └─col 2─┘
+└───────┴───────┴───────┘
+```
+
+So with outer `ColMajor`, the box that immediately follows `(0,0)` in memory is
+the one **below** it, `(1,0)` — not the one to its right. The tile walks a full
+column of boxes, then jumps to the top of the next column. With outer
+`RowMajor` the order would be `(0,0) (0,1) (0,2) (1,0) ...` instead.
+
+Inside a box the elements are laid out by `InnerFractal`: `RowMajor` means
+16 contiguous elements per box row, `ColMajor` means 16 per box column. Outer
+and inner are chosen independently — a left-hand matmul operand is typically
+outer ColMajor with inner RowMajor, a right-hand one ColMajor/ColMajor.
 
 From these parameters the tile derives `RowStride`, `ColStride`, `InnerRows`,
 `InnerCols` and so on, and asserts the rules the hardware imposes — the
