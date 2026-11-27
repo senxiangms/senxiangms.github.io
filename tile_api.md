@@ -148,4 +148,35 @@ in a manual — they are overload constraints. Passing an `L2` tile to a vector
 add is a compile error, not a silent read of whatever the engine's L1 happened
 to contain.
 
+## There is no global memory
+
+A PTO-style API has a `GlobalTensor`: a pointer into a memory every core
+shares. A pointer alone names the data, and the load instruction takes a
+pointer for the source and a tile for the destination.
+
+A NUMA chip has no such memory. Each core owns its TCM and its L2; an address
+is only meaningful *inside one core*. So the source of a transfer is a tile
+too, and a remote tile carries one more piece of state: which core it belongs
+to.
+
+That is `addrIdSlot`. The natural design would be to store a core id in the
+tile, but DMA configurations typically have no field for one — they have a
+small (say 4-bit) `addr_id` that indexes a 16-entry table in the issuing core,
+whose entries hold physical core ids and are filled at run time:
+
+```cpp
+set_addr_id(/*slot=*/3, peerPhysicalCoreId);   // table entry, runtime
+TASSIGN(remote, 0x4000, /*addrIdSlot=*/3);     // tile binding, compile time
+```
+
+The indirection is not an inconvenience, it is the point: the DMA
+configuration stays a compile-time constant while the core it talks to changes
+at run time. The API therefore exposes the slot, not a core id, and the
+documentation has to say so loudly — passing a core id where a slot is
+expected reaches whichever core slot *n* happens to hold, and the transfer
+succeeds.
+
+Two consequences for the kernel author: fill the slot before the transfer
+runs, and do not refill it while a transfer using it is still pending.
+
 TBD
